@@ -390,7 +390,6 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
                           onPressed: () => agregarNota(index),
                         ),
                       ),
-                      //ACÄ E EDITADO
                       if (estado['tiempoRestante'] > 0)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8.0),
