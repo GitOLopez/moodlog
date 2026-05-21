@@ -1,8 +1,13 @@
-// lib/bienvenida_page.dart
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'package:moodlog/database/database_helper.dart';
 import 'estadistica/estadistica_page.dart';
 import 'perfil/perfil_page.dart';
+
+const int TIEMPO_LIMITE_MINUTOS = 1; // Cambia a 5 para producción
 
 class BienvenidaPage extends StatefulWidget {
   final Map<String, dynamic> userData;
@@ -14,60 +19,167 @@ class BienvenidaPage extends StatefulWidget {
 
 class _BienvenidaPageState extends State<BienvenidaPage> {
   int _currentIndex = 0;
-  // ✅ Se quitó 'final' para permitir reasignaciones
-  late List<Widget> _pages;
   List<Map<String, dynamic>> estados = [];
   late Map<String, dynamic> _userData;
+  late int _userId;
+  Timer? _refreshTimer;
+
+  void _actualizarTiempos() {
+    final ahora = DateTime.now();
+    final limiteSegundos = TIEMPO_LIMITE_MINUTOS * 60;
+    bool huboCambio = false;
+    for (var estado in estados) {
+      final creado = estado['fecha'] as DateTime;
+      final segundosPasados = ahora.difference(creado).inSeconds;
+      final nuevosSegundos = (limiteSegundos - segundosPasados).clamp(0, limiteSegundos);
+      if (estado['segundosRestantes'] != nuevosSegundos) {
+        estado['segundosRestantes'] = nuevosSegundos;
+        huboCambio = true;
+      }
+    }
+    if (huboCambio) setState(() {});
+  }
+
+  void _iniciarTimerRefresco() {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (estados.any((e) => (e['segundosRestantes'] as int) > 0)) {
+        _actualizarTiempos();
+      }
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     _userData = Map<String, dynamic>.from(widget.userData);
-    _buildPages();
+    _userId = _userData['id'];
+    _cargarEstadosDesdeBD();
+    _iniciarTimerRefresco();
   }
 
-  void _buildPages() {
-    _pages = [
-      // Pestaña 0: Home
-      BienvenidaHomeContent(
-        apodo: _userData['apodo'] ?? 'Usuario',
-        estados: estados,
-        onAgregarEstado: (nuevo) {
-          setState(() {
-            estados.add(nuevo);
-            _buildPages(); // Reconstruye para reflejar el nuevo estado
-          });
-        },
-        onEliminarEstado: (index) {
-          setState(() {
-            estados.removeAt(index);
-            _buildPages();
-          });
-        },
-      ),
-      // Pestaña 1: Estadísticas
-      EstadisticaPage(estados: estados),
-      // Pestaña 2: Perfil
-      PerfilPage(
-        datosUsuario: _userData,
-        onActualizarDatos: (nuevosDatos) {
-          setState(() {
-            _userData = nuevosDatos;
-            _buildPages(); // Refresca el perfil y el apodo en la Home
-          });
-        },
-      ),
-    ];
+  Future<void> _cargarEstadosDesdeBD() async {
+    final memories = await DatabaseHelper().getMemoriesByUser(_userId);
+    setState(() {
+      estados = memories.map((mem) => _memoryToEstado(mem)).toList();
+      _actualizarTiempos();
+    });
+  }
+
+  Map<String, dynamic> _memoryToEstado(Map<String, dynamic> memory) {
+    DateTime created = DateTime.parse(memory['created_at']);
+    int segundosPasados = DateTime.now().difference(created).inSeconds;
+    int limiteSegundos = TIEMPO_LIMITE_MINUTOS * 60;
+    int segundosRestantes = (limiteSegundos - segundosPasados).clamp(0, limiteSegundos);
+
+    List<String> notas = [];
+    if (memory['notas_json'] != null && memory['notas_json'].isNotEmpty) {
+      try {
+        notas = List<String>.from(jsonDecode(memory['notas_json']));
+      } catch (e) {}
+    }
+
+    return {
+      'id': memory['id'],
+      'fecha': created,
+      'hora': '${created.hour}:${created.minute.toString().padLeft(2, '0')}',
+      'emoji': memory['emoji'],
+      'titulo': memory['titulo'],
+      'descripcion': memory['descripcion'],
+      'foto': memory['foto_path'] ?? '',
+      'notas': notas,
+      'segundosRestantes': segundosRestantes,
+    };
+  }
+
+  Future<void> agregarEstado(String emoji, String titulo, String descripcion, {String? foto}) async {
+    final ahora = DateTime.now();
+    final nuevoMemory = {
+      'user_id': _userId,
+      'emoji': emoji,
+      'titulo': titulo,
+      'descripcion': descripcion,
+      'foto_path': foto ?? '',
+      'notas_json': '[]',
+    };
+    int id = await DatabaseHelper().insertMemory(nuevoMemory);
+
+    final nuevoEstado = {
+      'id': id,
+      'fecha': ahora,
+      'hora': '${ahora.hour}:${ahora.minute.toString().padLeft(2, '0')}',
+      'emoji': emoji,
+      'titulo': titulo,
+      'descripcion': descripcion,
+      'foto': foto ?? '',
+      'notas': <String>[],
+      'segundosRestantes': TIEMPO_LIMITE_MINUTOS * 60,
+    };
+
+    setState(() => estados.insert(0, nuevoEstado));
+  }
+
+  Future<void> editarEstado(int index, String emoji, String titulo, String descripcion, {String? foto}) async {
+    final estado = estados[index];
+    final memoryId = estado['id'];
+    final updatedMemory = {
+      'id': memoryId,
+      'emoji': emoji,
+      'titulo': titulo,
+      'descripcion': descripcion,
+      'foto_path': foto ?? estado['foto'],
+      'notas_json': jsonEncode(estado['notas']),
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+    await DatabaseHelper().updateMemory(updatedMemory);
+
+    setState(() {
+      estados[index]['emoji'] = emoji;
+      estados[index]['titulo'] = titulo;
+      estados[index]['descripcion'] = descripcion;
+      estados[index]['foto'] = foto ?? estado['foto'];
+    });
+  }
+
+  Future<void> eliminarEstado(int index) async {
+    final estado = estados[index];
+    await DatabaseHelper().deleteMemory(estado['id']);
+    setState(() => estados.removeAt(index));
+  }
+
+  Future<void> agregarNota(int index, String nuevaNota) async {
+    setState(() => estados[index]['notas'].add(nuevaNota));
+    final memoryId = estados[index]['id'];
+    final nuevasNotasJson = jsonEncode(estados[index]['notas']);
+    await DatabaseHelper().updateMemory({
+      'id': memoryId,
+      'notas_json': nuevasNotasJson,
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width > 600;
-
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _pages,
+        children: [
+          BienvenidaHomeContent(
+            apodo: _userData['apodo'] ?? 'Usuario',
+            estados: estados,
+            onAgregarEstado: (emoji, titulo, descripcion, {foto}) =>
+                agregarEstado(emoji, titulo, descripcion, foto: foto),
+            onEditarEstado: (index, emoji, titulo, descripcion, {foto}) =>
+                editarEstado(index, emoji, titulo, descripcion, foto: foto),
+            onEliminarEstado: eliminarEstado,
+            onAgregarNota: agregarNota,
+          ),
+          EstadisticaPage(userId: _userId),
+          PerfilPage(
+            datosUsuario: _userData,
+            onActualizarDatos: (nuevosDatos) => setState(() => _userData = nuevosDatos),
+          ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
@@ -76,41 +188,39 @@ class _BienvenidaPageState extends State<BienvenidaPage> {
         unselectedItemColor: Colors.grey,
         showUnselectedLabels: isWide,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart_outlined),
-            activeIcon: Icon(Icons.bar_chart),
-            label: 'Estadísticas',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Perfil',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), activeIcon: Icon(Icons.bar_chart), label: 'Estadísticas'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Perfil'),
         ],
         onTap: (i) => setState(() => _currentIndex = i),
       ),
     );
   }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
 }
 
-// --- BienvenidaHomeContent sin cambios (se mantiene igual) ---
+// ================== Widget de la lista de estados ==================
 class BienvenidaHomeContent extends StatefulWidget {
   final String apodo;
   final List<Map<String, dynamic>> estados;
-  final Function(Map<String, dynamic>) onAgregarEstado;
-  final Function(int) onEliminarEstado;
+  final Future<void> Function(String emoji, String titulo, String descripcion, {String? foto}) onAgregarEstado;
+  final Future<void> Function(int index, String emoji, String titulo, String descripcion, {String? foto}) onEditarEstado;
+  final Future<void> Function(int index) onEliminarEstado;
+  final Future<void> Function(int index, String nota) onAgregarNota;
 
   const BienvenidaHomeContent({
     Key? key,
     required this.apodo,
     required this.estados,
     required this.onAgregarEstado,
+    required this.onEditarEstado,
     required this.onEliminarEstado,
+    required this.onAgregarNota,
   }) : super(key: key);
 
   @override
@@ -118,206 +228,321 @@ class BienvenidaHomeContent extends StatefulWidget {
 }
 
 class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
-  void agregarEstado(String emoji, String titulo, String descripcion, {String? foto}) {
-    final horaActual = TimeOfDay.now();
-    final horaFormateada =
-        "${horaActual.hour}:${horaActual.minute.toString().padLeft(2, '0')}";
+  final ImagePicker _picker = ImagePicker();
 
-    final nuevoEstado = {
-      'fecha': DateTime.now(),
-      'hora': horaFormateada,
-      'emoji': emoji,
-      'titulo': titulo,
-      'descripcion': descripcion,
-      'foto': foto ?? '',
-      'notas': <String>[],
-      'tiempoRestante': 5,
-      'timer': null,
-    };
-
-    final timer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      final index = widget.estados.indexOf(nuevoEstado);
-      if (index != -1) {
-        setState(() {
-          if (widget.estados[index]['tiempoRestante'] > 0) {
-            widget.estados[index]['tiempoRestante']--;
-          } else {
-            timer.cancel();
-          }
-        });
-      }
-    });
-    nuevoEstado['timer'] = timer;
-
-    widget.onAgregarEstado(nuevoEstado);
-  }
-
-  void eliminarEstado(int index) {
-    final estado = widget.estados[index];
-    final t = estado['timer'];
-    if (t is Timer) t.cancel();
-    widget.onEliminarEstado(index);
-  }
-
-  void agregarNota(int index) {
-    showDialog(
+  Future<File?> _seleccionarImagen() async {
+    return await showModalBottomSheet<File?>(
       context: context,
-      builder: (context) {
-        String nuevaNota = '';
-        return AlertDialog(
-          title: const Text('Agregar Nota'),
-          content: TextField(
-            onChanged: (value) => nuevaNota = value,
-            decoration: const InputDecoration(hintText: 'Escribe tu nota...'),
-          ),
-          actions: [
-            TextButton(
-              child: const Text('Cancelar'),
-              onPressed: () => Navigator.pop(context),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Galería'),
+              onTap: () async {
+                final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+                Navigator.pop(context, image != null ? File(image.path) : null);
+              },
             ),
-            ElevatedButton(
-              child: const Text('Guardar'),
-              onPressed: () {
-                setState(() {
-                  widget.estados[index]['notas'].add(nuevaNota);
-                });
-                Navigator.pop(context);
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Cámara'),
+              onTap: () async {
+                final XFile? image = await _picker.pickImage(source: ImageSource.camera);
+                Navigator.pop(context, image != null ? File(image.path) : null);
               },
             ),
           ],
-        );
-      },
+        ),
+      ),
+    );
+  }
+
+  void _mostrarDetalle(Map<String, dynamic> estado) {
+    final segundosRestantes = estado['segundosRestantes'] as int;
+    final puedeEditar = segundosRestantes > 0;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Text(estado['emoji'], style: const TextStyle(fontSize: 32)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(estado['titulo'], style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('📅 ${estado['fecha'].day}/${estado['fecha'].month}/${estado['fecha'].year} - ${estado['hora']}'),
+              const SizedBox(height: 12),
+              Text(estado['descripcion'], style: const TextStyle(fontSize: 16)),
+              if (estado['foto'] != null && estado['foto'].isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text('📷 Foto:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 200,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(estado['foto']),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text('Imagen no disponible', style: TextStyle(color: Colors.grey)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      frameBuilder: (_, child, frame, __) {
+                        if (frame == null) {
+                          return Container(
+                            color: Colors.grey[200],
+                            child: const Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        return child;
+                      },
+                    ),
+                  ),
+                ),
+              ],
+              if (estado['notas'].isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text('📝 Notas:', style: TextStyle(fontWeight: FontWeight.bold)),
+                ...estado['notas'].map((nota) => Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 4),
+                  child: Text('• $nota'),
+                )),
+              ],
+              if (puedeEditar) ...[
+                const SizedBox(height: 12),
+                Text('⏱️ Tiempo restante: ${_formatTiempo(segundosRestantes)}', style: const TextStyle(color: Colors.blue)),
+              ],
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))],
+      ),
     );
   }
 
   void mostrarFormularioNuevoEstado() {
-    String? emojiSeleccionado;
+    String? emoji;
     String titulo = '';
     String descripcion = '';
-    String? fotoSeleccionada;
+    File? imagen;
+    String? errorEmoji;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom,
-                  left: 20,
-                  right: 20,
-                  top: 20),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Nuevo Estado de Ánimo',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    const Text('¿Cómo te sientes?'),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: ['😊', '😢', '😡', '😐', '😞'].map((emoji) {
-                        final isSelected = emojiSeleccionado == emoji;
-                        return GestureDetector(
-                          onTap: () {
-                            setModalState(() {
-                              emojiSeleccionado = emoji;
-                            });
-                          },
-                          child: AnimatedScale(
-                            scale: isSelected ? 1.5 : 1.0,
-                            duration: const Duration(milliseconds: 200),
-                            child: CircleAvatar(
-                              radius: 28,
-                              backgroundColor:
-                              isSelected ? Colors.blue[100] : Colors.grey[200],
-                              child: Text(
-                                emoji,
-                                style: TextStyle(
-                                  fontSize: 28,
-                                  color: isSelected ? Colors.blue : Colors.black,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      decoration: const InputDecoration(
-                        labelText: 'Título (ej. Feliz, Triste, etc.)',
-                        border: OutlineInputBorder(),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Nuevo Estado', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                const Text('Selecciona una emoción:'),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: ['😊', '😢', '😡', '😐', '😞'].map((e) {
+                    final selected = emoji == e;
+                    return GestureDetector(
+                      onTap: () => setModalState(() { emoji = e; errorEmoji = null; }),
+                      child: AnimatedScale(
+                        scale: selected ? 1.5 : 1.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: CircleAvatar(
+                          radius: 28,
+                          backgroundColor: selected ? Colors.blue[100] : Colors.grey[200],
+                          child: Text(e, style: TextStyle(fontSize: 28, color: selected ? Colors.blue : Colors.black)),
+                        ),
                       ),
-                      onChanged: (value) => titulo = value,
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      decoration: const InputDecoration(
-                        labelText: '¿Qué hiciste hoy? Describe tu día...',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (value) => descripcion = value,
-                    ),
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('Agregar fotos (Opcional)',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.photo),
-                      label: const Text('Subir Foto'),
-                      onPressed: () {
-                        setModalState(() {
-                          fotoSeleccionada = 'foto_demo.png';
-                        });
-                      },
-                    ),
-                    if (fotoSeleccionada != null)
-                      Text('Foto seleccionada: $fotoSeleccionada',
-                          style: const TextStyle(color: Colors.green)),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      child: const Text('Guardar'),
-                      onPressed: () {
-                        if (emojiSeleccionado != null &&
-                            titulo.isNotEmpty &&
-                            descripcion.isNotEmpty) {
-                          agregarEstado(
-                              emojiSeleccionado!, titulo, descripcion,
-                              foto: fotoSeleccionada);
-                          Navigator.pop(context);
-                        }
-                      },
-                    ),
-                  ],
+                    );
+                  }).toList(),
                 ),
-              ),
-            );
-          },
-        );
-      },
+                if (errorEmoji != null) Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(errorEmoji!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+                const SizedBox(height: 16),
+                TextField(decoration: const InputDecoration(labelText: 'Título'), onChanged: (v) => titulo = v),
+                const SizedBox(height: 12),
+                TextField(decoration: const InputDecoration(labelText: 'Descripción'), onChanged: (v) => descripcion = v),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  icon: Icon(imagen == null ? Icons.add_photo_alternate : Icons.change_circle),
+                  label: Text(imagen == null ? 'Agregar foto' : 'Cambiar foto'),
+                  onPressed: () async {
+                    final img = await _seleccionarImagen();
+                    if (img != null) setModalState(() => imagen = img);
+                  },
+                ),
+                if (imagen != null) const Text('✓ Foto seleccionada', style: TextStyle(color: Colors.green)),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () {
+                    if (emoji == null) {
+                      setModalState(() => errorEmoji = '⚠️ Selecciona una emoción');
+                      return;
+                    }
+                    if (titulo.isEmpty || descripcion.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Completa título y descripción')));
+                      return;
+                    }
+                    widget.onAgregarEstado(emoji!, titulo, descripcion, foto: imagen?.path);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Guardar'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
-  @override
-  void dispose() {
-    for (var e in widget.estados) {
-      final t = e['timer'];
-      if (t is Timer) t.cancel();
+  void mostrarFormularioEditarEstado(int index) {
+    final estado = widget.estados[index];
+    String? emoji = estado['emoji'];
+    String titulo = estado['titulo'];
+    String descripcion = estado['descripcion'];
+    File? imagen = estado['foto'] != null && estado['foto'].isNotEmpty ? File(estado['foto']) : null;
+    String? errorEmoji;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Editar Estado', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                const Text('Selecciona una emoción:'),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: ['😊', '😢', '😡', '😐', '😞'].map((e) {
+                    final selected = emoji == e;
+                    return GestureDetector(
+                      onTap: () => setModalState(() { emoji = e; errorEmoji = null; }),
+                      child: AnimatedScale(
+                        scale: selected ? 1.5 : 1.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: CircleAvatar(
+                          radius: 28,
+                          backgroundColor: selected ? Colors.blue[100] : Colors.grey[200],
+                          child: Text(e, style: TextStyle(fontSize: 28, color: selected ? Colors.blue : Colors.black)),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                if (errorEmoji != null) Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(errorEmoji!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: TextEditingController(text: titulo),
+                  decoration: const InputDecoration(labelText: 'Título'),
+                  onChanged: (v) => titulo = v,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: TextEditingController(text: descripcion),
+                  decoration: const InputDecoration(labelText: 'Descripción'),
+                  onChanged: (v) => descripcion = v,
+                ),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  icon: Icon(imagen == null ? Icons.add_photo_alternate : Icons.change_circle),
+                  label: Text(imagen == null ? 'Agregar foto' : 'Cambiar foto'),
+                  onPressed: () async {
+                    final img = await _seleccionarImagen();
+                    if (img != null) setModalState(() => imagen = img);
+                  },
+                ),
+                if (imagen != null) const Text('✓ Foto seleccionada', style: TextStyle(color: Colors.green)),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () {
+                    if (emoji == null) {
+                      setModalState(() => errorEmoji = '⚠️ Selecciona una emoción');
+                      return;
+                    }
+                    if (titulo.isEmpty || descripcion.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Completa título y descripción')));
+                      return;
+                    }
+                    widget.onEditarEstado(index, emoji!, titulo, descripcion, foto: imagen?.path);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Guardar Cambios'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void mostrarDialogoNota(int index) {
+    final notas = widget.estados[index]['notas'] as List;
+    if (notas.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Máximo 5 notas por registro'), backgroundColor: Colors.orange));
+      return;
     }
-    super.dispose();
+    String nuevaNota = '';
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Agregar Nota'),
+        content: TextField(onChanged: (v) => nuevaNota = v, decoration: const InputDecoration(hintText: 'Escribe tu nota...')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () {
+              if (nuevaNota.isNotEmpty) widget.onAgregarNota(index, nuevaNota);
+              Navigator.pop(context);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTiempo(int segundos) {
+    if (segundos <= 0) return '0 seg';
+    int minutos = segundos ~/ 60;
+    int segs = segundos % 60;
+    return minutos > 0 ? '$minutos min ${segs.toString().padLeft(2, '0')} seg' : '$segs seg';
   }
 
   @override
@@ -326,11 +551,8 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              '¡Hola, ${widget.apodo}!',
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
+            padding: const EdgeInsets.all(16),
+            child: Text('¡Hola, ${widget.apodo}!', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           ),
           Expanded(
             child: widget.estados.isEmpty
@@ -340,65 +562,30 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
               itemCount: widget.estados.length,
               itemBuilder: (context, index) {
                 final estado = widget.estados[index];
+                final restante = estado['segundosRestantes'] as int;
+                final editable = restante > 0;
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   child: Column(
                     children: [
                       ListTile(
-                        leading: Text(estado['emoji'],
-                            style: const TextStyle(fontSize: 28)),
-                        title: Text(
-                            '${estado['hora']}  ${estado['titulo']}'),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(estado['descripcion']),
-                            if (estado['foto'] != null &&
-                                estado['foto'].isNotEmpty)
-                              Text('Foto adjunta',
-                                  style: TextStyle(
-                                      fontStyle: FontStyle.italic,
-                                      color: Colors.grey[600])),
-                            if (estado['notas'].isNotEmpty)
-                              ...estado['notas']
-                                  .map<Widget>((nota) => Text("- $nota"))
-                                  .toList(),
-                          ],
-                        ),
-                        trailing: estado['tiempoRestante'] > 0
-                            ? Row(
+                        onTap: () => _mostrarDetalle(estado),
+                        leading: Text(estado['emoji'], style: const TextStyle(fontSize: 28)),
+                        title: Text('${estado['hora']}  ${estado['titulo']}'),
+                        subtitle: Text(estado['descripcion']),
+                        trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            IconButton(
-                              icon: const Icon(Icons.edit,
-                                  color: Colors.blue),
-                              onPressed: () {
-                                // Editar (por implementar)
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete,
-                                  color: Colors.red),
-                              onPressed: () =>
-                                  eliminarEstado(index),
-                            ),
+                            if (editable) IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => mostrarFormularioEditarEstado(index)),
+                            if (editable) IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => widget.onEliminarEstado(index)),
+                            if (!editable) IconButton(icon: const Icon(Icons.note_add, color: Colors.green), onPressed: () => mostrarDialogoNota(index)),
                           ],
-                        )
-                            : IconButton(
-                          icon: const Icon(Icons.note_add,
-                              color: Colors.green),
-                          onPressed: () => agregarNota(index),
                         ),
                       ),
-                      if (estado['tiempoRestante'] > 0)
+                      if (editable)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 8.0),
-                          child: Text(
-                            'Tiempo restante para eliminar: ${estado['tiempoRestante']} min',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600]),
-                          ),
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text('Tiempo restante: ${_formatTiempo(restante)}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                         ),
                     ],
                   ),
@@ -407,14 +594,8 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.only(bottom: 12.0, right: 16.0),
-            child: Align(
-              alignment: Alignment.bottomRight,
-              child: FloatingActionButton(
-                child: const Icon(Icons.add),
-                onPressed: mostrarFormularioNuevoEstado,
-              ),
-            ),
+            padding: const EdgeInsets.only(bottom: 12, right: 16),
+            child: Align(alignment: Alignment.bottomRight, child: FloatingActionButton(child: const Icon(Icons.add), onPressed: mostrarFormularioNuevoEstado)),
           ),
         ],
       ),

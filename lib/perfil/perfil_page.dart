@@ -1,4 +1,3 @@
-// lib/perfil/perfil_page.dart
 import 'package:flutter/material.dart';
 import 'editar_perfil_page.dart';
 
@@ -28,9 +27,7 @@ class PerfilPage extends StatelessWidget {
               label: const Text('Editar perfil'),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ],
@@ -93,9 +90,7 @@ class PerfilPage extends StatelessWidget {
   void _abrirEdicion(BuildContext context) async {
     final nuevosDatos = await Navigator.push<Map<String, dynamic>>(
       context,
-      MaterialPageRoute(
-        builder: (_) => EditarPerfilPage(datosActuales: datosUsuario),
-      ),
+      MaterialPageRoute(builder: (_) => EditarPerfilPage(datosActuales: datosUsuario)),
     );
     if (nuevosDatos != null) {
       onActualizarDatos(nuevosDatos);

@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:collection';
-import 'dart:math';
+import 'package:moodlog/database/database_helper.dart';
+
 class EstadisticaPage extends StatefulWidget {
-  final List<Map<String, dynamic>>? estados;
-  EstadisticaPage({this.estados});
+  final int userId;
+  const EstadisticaPage({Key? key, required this.userId}) : super(key: key);
 
   @override
   _EstadisticaPageState createState() => _EstadisticaPageState();
@@ -15,49 +16,39 @@ class EstadisticaPage extends StatefulWidget {
 enum RangeMode { day, week, month }
 
 class _EstadisticaPageState extends State<EstadisticaPage> {
-  late List<Map<String, dynamic>> _estados;
+  List<Map<String, dynamic>> _estados = [];
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   RangeMode _mode = RangeMode.day;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _estados = widget.estados ?? _generarDatosAleatorios();
     _selectedDay = _focusedDay;
+    _cargarEstados();
   }
 
-  /// Genera entre 80 y 150 registros aleatorios en los últimos 30 días
-  List<Map<String, dynamic>> _generarDatosAleatorios() {
-    final random = Random();
-    const emojis = ['😊', '😢', '😡', '😐', '😞', '🤩', '😴', '😰'];
-    final now = DateTime.now();
-    final cantidad = 80 + random.nextInt(71); // 80 a 150
-    final estados = <Map<String, dynamic>>[];
-
-    for (int i = 0; i < cantidad; i++) {
-      final diasAtras = random.nextInt(31);
-      final fecha = DateTime(now.year, now.month, now.day)
-          .subtract(Duration(days: diasAtras))
-          .add(Duration(hours: random.nextInt(24), minutes: random.nextInt(60)));
-
-      final emoji = emojis[random.nextInt(emojis.length)];
-
-      estados.add({
-        'fecha': fecha,
-        'emoji': emoji,
-      });
-    }
-    return estados;
-  }
   @override
   void didUpdateWidget(covariant EstadisticaPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.estados != oldWidget.estados) {
-      setState(() {
-        _estados = widget.estados ?? _generarDatosAleatorios();
-      });
+    if (widget.userId != oldWidget.userId) {
+      _cargarEstados();
     }
+  }
+
+  Future<void> _cargarEstados() async {
+    setState(() => _isLoading = true);
+    final memories = await DatabaseHelper().getMemoriesByUser(widget.userId);
+    setState(() {
+      _estados = memories.map((mem) {
+        return {
+          'fecha': DateTime.parse(mem['created_at']),
+          'emoji': mem['emoji'],
+        };
+      }).toList();
+      _isLoading = false;
+    });
   }
 
   Map<DateTime, List<Map<String, dynamic>>> _groupByDay(List<Map<String, dynamic>> estados) {
@@ -89,18 +80,18 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
   DateTimeRange _rangeForMode(DateTime reference) {
     if (_mode == RangeMode.day) {
       final start = DateTime(reference.year, reference.month, reference.day);
-      final end = start.add(Duration(days: 1)).subtract(Duration(seconds: 1));
+      final end = start.add(const Duration(days: 1)).subtract(const Duration(seconds: 1));
       return DateTimeRange(start: start, end: end);
     } else if (_mode == RangeMode.week) {
       final weekday = reference.weekday;
       final start = DateTime(reference.year, reference.month, reference.day)
           .subtract(Duration(days: weekday - 1));
-      final end = start.add(Duration(days: 7)).subtract(Duration(seconds: 1));
+      final end = start.add(const Duration(days: 7)).subtract(const Duration(seconds: 1));
       return DateTimeRange(start: start, end: end);
     } else {
       final start = DateTime(reference.year, reference.month, 1);
       final end = DateTime(reference.year, reference.month + 1, 1)
-          .subtract(Duration(seconds: 1));
+          .subtract(const Duration(seconds: 1));
       return DateTimeRange(start: start, end: end);
     }
   }
@@ -139,45 +130,49 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Estadísticas')), // puedes mantener const en Text
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final range = _rangeForMode(_selectedDay ?? _focusedDay);
     final counts = _countsInRange(range);
     final barGroups = _buildBarGroups(counts);
     final xLabels = _xLabels(counts);
 
     return Scaffold(
-      appBar: AppBar(title: Text('Estadísticas')),
+      appBar: AppBar(title: const Text('Estadísticas')),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Selector de rango
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   ChoiceChip(
-                    label: Text('Día'),
+                    label: const Text('Día'),
                     selected: _mode == RangeMode.day,
                     onSelected: (_) => setState(() => _mode = RangeMode.day),
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   ChoiceChip(
-                    label: Text('Semana'),
+                    label: const Text('Semana'),
                     selected: _mode == RangeMode.week,
                     onSelected: (_) => setState(() => _mode = RangeMode.week),
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   ChoiceChip(
-                    label: Text('Mes'),
+                    label: const Text('Mes'),
                     selected: _mode == RangeMode.month,
                     onSelected: (_) => setState(() => _mode = RangeMode.month),
                   ),
                 ],
               ),
-              SizedBox(height: 8),
-
-              // Calendario – ahora sin restricción de altura, crece lo necesario
+              const SizedBox(height: 8),
               Card(
                 elevation: 2,
                 clipBehavior: Clip.antiAlias,
@@ -198,10 +193,10 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                       return Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text('${day.day}', style: TextStyle(fontSize: 12)),
+                          Text('${day.day}', style: const TextStyle(fontSize: 12)),
                           if (emoji != null) ...[
-                            SizedBox(height: 4),
-                            Text(emoji, style: TextStyle(fontSize: 18)),
+                            const SizedBox(height: 4),
+                            Text(emoji, style: const TextStyle(fontSize: 18)),
                           ],
                         ],
                       );
@@ -210,16 +205,16 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                       final emoji = _predominantEmojiForDay(day);
                       return Container(
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.15),
+                          color: Colors.blue.withValues(alpha: 0.15), // ✅ Corregido
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text('${day.day}', style: TextStyle(fontSize: 12)),
+                            Text('${day.day}', style: const TextStyle(fontSize: 12)),
                             if (emoji != null) ...[
-                              SizedBox(height: 4),
-                              Text(emoji, style: TextStyle(fontSize: 18)),
+                              const SizedBox(height: 4),
+                              Text(emoji, style: const TextStyle(fontSize: 18)),
                             ],
                           ],
                         ),
@@ -228,10 +223,7 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                   ),
                 ),
               ),
-
-              SizedBox(height: 12),
-
-              // Rango seleccionado
+              const SizedBox(height: 12),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
@@ -240,29 +232,25 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                       : _mode == RangeMode.week
                       ? 'Semana: ${range.start.day}/${range.start.month}/${range.start.year} - ${range.end.day}/${range.end.month}/${range.end.year}'
                       : 'Mes: ${range.start.month}/${range.start.year}',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
-
-              SizedBox(height: 8),
-
-              // Gráfica con altura fija para mantener consistencia
+              const SizedBox(height: 8),
               SizedBox(
-                height: 320, // suficiente para gráfica + leyenda + padding
+                height: 320,
                 child: Card(
                   elevation: 2,
                   clipBehavior: Clip.antiAlias,
                   child: Padding(
                     padding: const EdgeInsets.all(12.0),
                     child: counts.isEmpty
-                        ? Center(child: Text('No hay registros en este rango'))
+                        ? const Center(child: Text('No hay registros en este rango'))
                         : Column(
                       children: [
-                        // Gráfica con scroll horizontal si es necesario
                         Expanded(
                           child: LayoutBuilder(
                             builder: (ctx, constraints) {
-                              final barWidth = 48.0; // ancho estimado por barra
+                              final barWidth = 48.0;
                               final totalWidth = xLabels.length * barWidth;
                               final needScroll = totalWidth > constraints.maxWidth;
 
@@ -270,12 +258,11 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                                 BarChartData(
                                   alignment: BarChartAlignment.spaceAround,
                                   maxY: (counts.values.isNotEmpty
-                                      ? counts.values.reduce(
-                                          (a, b) => a > b ? a : b)
+                                      ? counts.values.reduce((a, b) => a > b ? a : b)
                                       : 1)
                                       .toDouble() +
                                       1,
-                                  barTouchData: BarTouchData(enabled: true),
+                                  barTouchData: BarTouchData(enabled: true), // ✅ sin const
                                   titlesData: FlTitlesData(
                                     leftTitles: AxisTitles(
                                       sideTitles: SideTitles(
@@ -290,7 +277,7 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                                         getTitlesWidget: (value, meta) {
                                           final idx = value.toInt();
                                           if (idx < 0 || idx >= xLabels.length)
-                                            return SizedBox.shrink();
+                                            return const SizedBox.shrink();
                                           return Padding(
                                             padding: const EdgeInsets.only(top: 6.0),
                                             child: SizedBox(
@@ -299,7 +286,7 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                                                 fit: BoxFit.scaleDown,
                                                 child: Text(
                                                   xLabels[idx],
-                                                  style: TextStyle(fontSize: 18),
+                                                  style: const TextStyle(fontSize: 18),
                                                 ),
                                               ),
                                             ),
@@ -308,7 +295,7 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                                       ),
                                     ),
                                   ),
-                                  gridData: FlGridData(show: true),
+                                  gridData: const FlGridData(show: true),
                                   borderData: FlBorderData(show: false),
                                   barGroups: barGroups,
                                 ),
@@ -328,18 +315,14 @@ class _EstadisticaPageState extends State<EstadisticaPage> {
                             },
                           ),
                         ),
-
-                        SizedBox(height: 8),
-
-                        // Leyenda horizontal
+                        const SizedBox(height: 8),
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           child: Row(
                             children: counts.entries.map((e) {
                               return Padding(
                                 padding: const EdgeInsets.only(right: 8.0),
-                                child: Chip(
-                                    label: Text('${e.key}  ${e.value}')),
+                                child: Chip(label: Text('${e.key}  ${e.value}')),
                               );
                             }).toList(),
                           ),

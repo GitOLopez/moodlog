@@ -1,5 +1,5 @@
-// lib/registro_page.dart
 import 'package:flutter/material.dart';
+import 'package:moodlog/database/database_helper.dart';
 import 'bienvenida_page.dart';
 
 class RegistroPage extends StatefulWidget {
@@ -32,13 +32,10 @@ class _RegistroPageState extends State<RegistroPage> {
         ),
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(24.0),
             child: Card(
-              elevation: 12,
-              shadowColor: Colors.black26,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(32),
-              ),
+              elevation: 8,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
                 child: Form(
@@ -46,149 +43,65 @@ class _RegistroPageState extends State<RegistroPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Icono decorativo
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF6A11CB).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.person_add_alt_1,
-                          size: 56,
-                          color: Color(0xFF6A11CB),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Crear cuenta',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF6A11CB),
-                        ),
-                      ),
+                      const Icon(Icons.person_add, size: 70, color: Color(0xFF6A11CB)),
+                      const Text('Crear cuenta', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+                      const SizedBox(height: 24),
+                      _campo('Nombre', (v) => nombre = v!),
+                      _campo('Apellido', (v) => apellido = v!),
+                      _campo('Apodo (cómo te llamaremos)', (v) => apodo = v!),
                       const SizedBox(height: 8),
-                      const Text(
-                        'Completa tus datos para comenzar',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey,
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-
-                      // Campos del formulario
-                      _buildInputField(
-                        label: 'Nombre',
-                        icon: Icons.person_outline,
-                        onSaved: (v) => nombre = v!,
-                        validator: (v) => v == null || v.isEmpty ? 'Nombre requerido' : null,
-                      ),
-                      const SizedBox(height: 14),
-                      _buildInputField(
-                        label: 'Apellido',
-                        icon: Icons.person_outline,
-                        onSaved: (v) => apellido = v!,
-                        validator: (v) => v == null || v.isEmpty ? 'Apellido requerido' : null,
-                      ),
-                      const SizedBox(height: 14),
-                      _buildInputField(
-                        label: 'Apodo (cómo te llamaremos)',
-                        icon: Icons.tag,
-                        onSaved: (v) => apodo = v!,
-                        validator: (v) => v == null || v.isEmpty ? 'Apodo requerido' : null,
-                      ),
-                      const SizedBox(height: 14),
-                      _buildInputField(
-                        label: 'Contraseña',
-                        icon: Icons.lock_outline,
+                      TextFormField(
                         obscureText: true,
-                        onSaved: (v) => contrasena = v!,
+                        decoration: _decoracion('Contraseña', Icons.lock),
                         validator: (v) {
-                          if (v == null || v.isEmpty) return 'Contraseña requerida';
+                          if (v == null || v.isEmpty) return 'Campo obligatorio';
                           if (v.length < 6) return 'Mínimo 6 caracteres';
                           return null;
                         },
+                        onSaved: (v) => contrasena = v!,
                       ),
-                      const SizedBox(height: 14),
-                      _buildInputField(
-                        label: 'Edad',
-                        icon: Icons.cake_outlined,
+                      const SizedBox(height: 8),
+                      TextFormField(
                         keyboardType: TextInputType.number,
-                        onSaved: (v) => edad = int.parse(v!),
+                        decoration: _decoracion('Edad', Icons.cake),
                         validator: (v) {
-                          if (v == null || v.isEmpty) return 'Edad requerida';
-                          if (int.tryParse(v) == null) return 'Número válido';
+                          if (v == null || v.isEmpty) return 'Campo obligatorio';
+                          if (int.tryParse(v) == null) return 'Número inválido';
                           return null;
                         },
+                        onSaved: (v) => edad = int.parse(v!),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
-                        decoration: InputDecoration(
-                          labelText: 'Sexo',
-                          prefixIcon: const Icon(Icons.people_outline),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: Colors.grey.shade300),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: Colors.grey.shade300),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFF6A11CB), width: 2),
-                          ),
-                          filled: true,
-                          fillColor: Colors.grey.shade50,
-                        ),
+                        decoration: _decoracion('Sexo', Icons.people),
                         value: sexo.isNotEmpty ? sexo : null,
-                        items: ['Masculino', 'Femenino']
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                            .toList(),
+                        items: ['Masculino', 'Femenino'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                         onChanged: (v) => setState(() => sexo = v!),
                         validator: (v) => v == null ? 'Selecciona una opción' : null,
                       ),
-                      const SizedBox(height: 14),
-                      _buildInputField(
-                        label: 'Contacto de emergencia (nombre)',
-                        icon: Icons.contact_phone,
-                        required: false,
-                        onSaved: (v) => nombreContacto = v ?? '',
-                      ),
-                      const SizedBox(height: 14),
-                      _buildInputField(
-                        label: 'Teléfono de emergencia',
-                        icon: Icons.phone_android,
+                      const SizedBox(height: 8),
+                      _campo('Contacto de emergencia (nombre)', (v) => nombreContacto = v!, obligatorio: false),
+                      const SizedBox(height: 8),
+                      TextFormField(
                         keyboardType: TextInputType.number,
-                        onSaved: (v) => contactoEmergencia = int.parse(v!),
+                        decoration: _decoracion('Teléfono de emergencia', Icons.phone),
                         validator: (v) {
-                          if (v == null || v.isEmpty) return 'Teléfono requerido';
+                          if (v == null || v.isEmpty) return 'Campo obligatorio';
                           if (int.tryParse(v) == null) return 'Solo números';
                           return null;
                         },
+                        onSaved: (v) => contactoEmergencia = int.parse(v!),
                       ),
-                      const SizedBox(height: 32),
-
-                      // Botón registrar
+                      const SizedBox(height: 24),
                       SizedBox(
                         width: double.infinity,
-                        height: 54,
+                        height: 48,
                         child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6A11CB),
-                            foregroundColor: Colors.white,
-                            elevation: 6,
-                            shadowColor: const Color(0xFF6A11CB).withOpacity(0.5),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
-                            ),
-                          ),
-                          onPressed: () {
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6A11CB), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                          onPressed: () async {
                             if (_formKey.currentState!.validate()) {
                               _formKey.currentState!.save();
-                              final datos = {
+                              final nuevoUsuario = {
                                 'nombre': nombre,
                                 'apellido': apellido,
                                 'apodo': apodo,
@@ -198,37 +111,17 @@ class _RegistroPageState extends State<RegistroPage> {
                                 'nombreContacto': nombreContacto,
                                 'contactoEmergencia': contactoEmergencia,
                               };
-                              Navigator.push(
+                              int id = await DatabaseHelper().insertUser(nuevoUsuario);
+                              nuevoUsuario['id'] = id;
+                              if (!mounted) return;
+                              Navigator.pushReplacement(
                                 context,
-                                MaterialPageRoute(
-                                  builder: (_) => BienvenidaPage(userData: datos),
-                                ),
+                                MaterialPageRoute(builder: (_) => BienvenidaPage(userData: nuevoUsuario)),
                               );
                             }
                           },
-                          child: const Text(
-                            'Registrarse',
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-                          ),
+                          child: const Text('Registrarse', style: TextStyle(fontSize: 16)),
                         ),
-                      ),
-
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text('¿Ya tienes cuenta?'),
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text(
-                              'Iniciar sesión',
-                              style: TextStyle(
-                                color: Color(0xFF6A11CB),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
@@ -241,41 +134,22 @@ class _RegistroPageState extends State<RegistroPage> {
     );
   }
 
-  Widget _buildInputField({
-    required String label,
-    required IconData icon,
-    bool obscureText = false,
-    bool required = true,
-    TextInputType keyboardType = TextInputType.text,
-    required Function(String?) onSaved,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      obscureText: obscureText,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: const Color(0xFF6A11CB)),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFF6A11CB), width: 2),
-        ),
-        filled: true,
-        fillColor: Colors.grey.shade50,
-        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+  Widget _campo(String label, Function(String?) onSaved, {bool obligatorio = true}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: TextFormField(
+        decoration: _decoracion(label, Icons.text_fields),
+        validator: obligatorio ? (v) => v == null || v.isEmpty ? 'Campo obligatorio' : null : null,
+        onSaved: onSaved,
       ),
-      validator: required
-          ? (validator ?? (v) => v == null || v.isEmpty ? 'Campo obligatorio' : null)
-          : null,
-      onSaved: onSaved,
+    );
+  }
+
+  InputDecoration _decoracion(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
     );
   }
 }

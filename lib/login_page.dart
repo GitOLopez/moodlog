@@ -1,5 +1,5 @@
-// lib/login_page.dart
 import 'package:flutter/material.dart';
+import 'package:moodlog/database/database_helper.dart';
 import 'registro_page.dart';
 import 'bienvenida_page.dart';
 
@@ -10,7 +10,6 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-
   String usuario = '';
   String contrasena = '';
 
@@ -30,9 +29,7 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.all(24.0),
             child: Card(
               elevation: 8,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
                 child: Form(
@@ -40,45 +37,19 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        Icons.mood,
-                        size: 80,
-                        color: Color(0xFF6A11CB),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'MoodLog',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF6A11CB),
-                        ),
-                      ),
+                      const Icon(Icons.mood, size: 80, color: Color(0xFF6A11CB)),
+                      const Text('MoodLog', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
                       const SizedBox(height: 24),
                       TextFormField(
-                        decoration: InputDecoration(
-                          labelText: 'Usuario',
-                          prefixIcon: const Icon(Icons.person),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        validator: (value) =>
-                        value == null || value.isEmpty ? 'Campo obligatorio' : null,
+                        decoration: InputDecoration(labelText: 'Usuario (apodo)', prefixIcon: const Icon(Icons.person), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                        validator: (value) => value == null || value.isEmpty ? 'Campo obligatorio' : null,
                         onSaved: (value) => usuario = value!,
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
                         obscureText: true,
-                        decoration: InputDecoration(
-                          labelText: 'Contraseña',
-                          prefixIcon: const Icon(Icons.lock),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        validator: (value) =>
-                        value == null || value.isEmpty ? 'Campo obligatorio' : null,
+                        decoration: InputDecoration(labelText: 'Contraseña', prefixIcon: const Icon(Icons.lock), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                        validator: (value) => value == null || value.isEmpty ? 'Campo obligatorio' : null,
                         onSaved: (value) => contrasena = value!,
                       ),
                       const SizedBox(height: 24),
@@ -86,48 +57,30 @@ class _LoginPageState extends State<LoginPage> {
                         width: double.infinity,
                         height: 48,
                         child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6A11CB),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          onPressed: () {
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6A11CB), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                          onPressed: () async {
                             if (_formKey.currentState!.validate()) {
                               _formKey.currentState!.save();
-                              // Datos mínimos para el usuario que inicia sesión
-                              final datosUsuario = {
-                                'nombre': '',
-                                'apellido': '',
-                                'apodo': usuario,
-                                'edad': 0,
-                                'sexo': '',
-                                'nombreContacto': '',
-                                'contactoEmergencia': 0,
-                                'contrasena': contrasena,
-                              };
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => BienvenidaPage(userData: datosUsuario),
-                                ),
-                              );
+                              final user = await DatabaseHelper().getUserByApodo(usuario);
+                              if (user != null && user['contrasena'] == contrasena) {
+                                if (!mounted) return;
+                                Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => BienvenidaPage(userData: user)),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Usuario o contraseña incorrectos'), backgroundColor: Colors.red),
+                                );
+                              }
                             }
                           },
-                          child: const Text(
-                            'Iniciar sesión',
-                            style: TextStyle(fontSize: 16),
-                          ),
+                          child: const Text('Iniciar sesión', style: TextStyle(fontSize: 16)),
                         ),
                       ),
                       const SizedBox(height: 12),
                       TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => RegistroPage()),
-                          );
-                        },
+                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RegistroPage())),
                         child: const Text('¿No tienes cuenta? Regístrate'),
                       ),
                     ],
