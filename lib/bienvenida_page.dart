@@ -1,13 +1,14 @@
-import 'package:flutter/material.dart';
+// bienvenida_page.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:moodlog/database/database_helper.dart';
 import 'estadistica/estadistica_page.dart';
 import 'perfil/perfil_page.dart';
 
-const int TIEMPO_LIMITE_MINUTOS = 1; // Cambia a 5 para producción
+const int TIEMPO_LIMITE_MINUTOS = 1;
 
 class BienvenidaPage extends StatefulWidget {
   final Map<String, dynamic> userData;
@@ -17,12 +18,13 @@ class BienvenidaPage extends StatefulWidget {
   _BienvenidaPageState createState() => _BienvenidaPageState();
 }
 
-class _BienvenidaPageState extends State<BienvenidaPage> {
+class _BienvenidaPageState extends State<BienvenidaPage> with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
   List<Map<String, dynamic>> estados = [];
   late Map<String, dynamic> _userData;
   late int _userId;
   Timer? _refreshTimer;
+  late AnimationController _animationController;
 
   void _actualizarTiempos() {
     final ahora = DateTime.now();
@@ -52,6 +54,8 @@ class _BienvenidaPageState extends State<BienvenidaPage> {
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+    _animationController.forward();
     _userData = Map<String, dynamic>.from(widget.userData);
     _userId = _userData['id'];
     _cargarEstadosDesdeBD();
@@ -71,14 +75,12 @@ class _BienvenidaPageState extends State<BienvenidaPage> {
     int segundosPasados = DateTime.now().difference(created).inSeconds;
     int limiteSegundos = TIEMPO_LIMITE_MINUTOS * 60;
     int segundosRestantes = (limiteSegundos - segundosPasados).clamp(0, limiteSegundos);
-
     List<String> notas = [];
     if (memory['notas_json'] != null && memory['notas_json'].isNotEmpty) {
       try {
         notas = List<String>.from(jsonDecode(memory['notas_json']));
       } catch (e) {}
     }
-
     return {
       'id': memory['id'],
       'fecha': created,
@@ -103,7 +105,6 @@ class _BienvenidaPageState extends State<BienvenidaPage> {
       'notas_json': '[]',
     };
     int id = await DatabaseHelper().insertMemory(nuevoMemory);
-
     final nuevoEstado = {
       'id': id,
       'fecha': ahora,
@@ -115,7 +116,6 @@ class _BienvenidaPageState extends State<BienvenidaPage> {
       'notas': <String>[],
       'segundosRestantes': TIEMPO_LIMITE_MINUTOS * 60,
     };
-
     setState(() => estados.insert(0, nuevoEstado));
   }
 
@@ -132,7 +132,6 @@ class _BienvenidaPageState extends State<BienvenidaPage> {
       'updated_at': DateTime.now().toIso8601String(),
     };
     await DatabaseHelper().updateMemory(updatedMemory);
-
     setState(() {
       estados[index]['emoji'] = emoji;
       estados[index]['titulo'] = titulo;
@@ -161,38 +160,57 @@ class _BienvenidaPageState extends State<BienvenidaPage> {
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width > 600;
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: [
-          BienvenidaHomeContent(
-            apodo: _userData['apodo'] ?? 'Usuario',
-            estados: estados,
-            onAgregarEstado: (emoji, titulo, descripcion, {foto}) =>
-                agregarEstado(emoji, titulo, descripcion, foto: foto),
-            onEditarEstado: (index, emoji, titulo, descripcion, {foto}) =>
-                editarEstado(index, emoji, titulo, descripcion, foto: foto),
-            onEliminarEstado: eliminarEstado,
-            onAgregarNota: agregarNota,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF8FAFF), Color(0xFFEFF3FE)],
           ),
-          EstadisticaPage(userId: _userId),
-          PerfilPage(
-            datosUsuario: _userData,
-            onActualizarDatos: (nuevosDatos) => setState(() => _userData = nuevosDatos),
-          ),
-        ],
+        ),
+        child: IndexedStack(
+          index: _currentIndex,
+          children: [
+            BienvenidaHomeContent(
+              apodo: _userData['apodo'] ?? 'Usuario',
+              estados: estados,
+              onAgregarEstado: (emoji, titulo, descripcion, {foto}) =>
+                  agregarEstado(emoji, titulo, descripcion, foto: foto),
+              onEditarEstado: (index, emoji, titulo, descripcion, {foto}) =>
+                  editarEstado(index, emoji, titulo, descripcion, foto: foto),
+              onEliminarEstado: eliminarEstado,
+              onAgregarNota: agregarNota,
+            ),
+            EstadisticaPage(userId: _userId),
+            PerfilPage(
+              datosUsuario: _userData,
+              onActualizarDatos: (nuevosDatos) => setState(() => _userData = nuevosDatos),
+            ),
+          ],
+        ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        type: isWide ? BottomNavigationBarType.fixed : BottomNavigationBarType.shifting,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey,
-        showUnselectedLabels: isWide,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), activeIcon: Icon(Icons.bar_chart), label: 'Estadísticas'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Perfil'),
-        ],
-        onTap: (i) => setState(() => _currentIndex = i),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          borderRadius: const BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
+          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -2))],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            type: isWide ? BottomNavigationBarType.fixed : BottomNavigationBarType.shifting,
+            selectedItemColor: Colors.indigo.shade700,
+            unselectedItemColor: Colors.grey.shade500,
+            showUnselectedLabels: true,
+            elevation: 8,
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Inicio'),
+              BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), activeIcon: Icon(Icons.bar_chart), label: 'Estadísticas'),
+              BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Perfil'),
+            ],
+            onTap: (i) => setState(() => _currentIndex = i),
+          ),
+        ),
       ),
     );
   }
@@ -200,11 +218,12 @@ class _BienvenidaPageState extends State<BienvenidaPage> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _animationController.dispose();
     super.dispose();
   }
 }
 
-// ================== Widget de la lista de estados ==================
+// Home
 class BienvenidaHomeContent extends StatefulWidget {
   final String apodo;
   final List<Map<String, dynamic>> estados;
@@ -213,47 +232,52 @@ class BienvenidaHomeContent extends StatefulWidget {
   final Future<void> Function(int index) onEliminarEstado;
   final Future<void> Function(int index, String nota) onAgregarNota;
 
-  const BienvenidaHomeContent({
-    Key? key,
-    required this.apodo,
-    required this.estados,
-    required this.onAgregarEstado,
-    required this.onEditarEstado,
-    required this.onEliminarEstado,
-    required this.onAgregarNota,
-  }) : super(key: key);
+  const BienvenidaHomeContent({Key? key, required this.apodo, required this.estados, required this.onAgregarEstado, required this.onEditarEstado, required this.onEliminarEstado, required this.onAgregarNota}) : super(key: key);
 
   @override
   _BienvenidaHomeContentState createState() => _BienvenidaHomeContentState();
 }
 
-class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
+class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> with SingleTickerProviderStateMixin {
   final ImagePicker _picker = ImagePicker();
+  late AnimationController _fabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _fabController = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _fabController.forward();
+  }
 
   Future<File?> _seleccionarImagen() async {
     return await showModalBottomSheet<File?>(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      backgroundColor: Colors.white,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const SizedBox(height: 12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 16),
             ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Galería'),
+              leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.indigo.shade50, shape: BoxShape.circle), child: Icon(Icons.photo_library, color: Colors.indigo.shade700)),
+              title: const Text('Galería', style: TextStyle(fontWeight: FontWeight.w500)),
               onTap: () async {
                 final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
                 Navigator.pop(context, image != null ? File(image.path) : null);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Cámara'),
+              leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.indigo.shade50, shape: BoxShape.circle), child: Icon(Icons.camera_alt, color: Colors.indigo.shade700)),
+              title: const Text('Cámara', style: TextStyle(fontWeight: FontWeight.w500)),
               onTap: () async {
                 final XFile? image = await _picker.pickImage(source: ImageSource.camera);
                 Navigator.pop(context, image != null ? File(image.path) : null);
               },
             ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -261,80 +285,67 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
   }
 
   void _mostrarDetalle(Map<String, dynamic> estado) {
-    final segundosRestantes = estado['segundosRestantes'] as int;
-    final puedeEditar = segundosRestantes > 0;
-
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Text(estado['emoji'], style: const TextStyle(fontSize: 32)),
-            const SizedBox(width: 8),
-            Expanded(child: Text(estado['titulo'], style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('📅 ${estado['fecha'].day}/${estado['fecha'].month}/${estado['fecha'].year} - ${estado['hora']}'),
-              const SizedBox(height: 12),
-              Text(estado['descripcion'], style: const TextStyle(fontSize: 16)),
-              if (estado['foto'] != null && estado['foto'].isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Text('📷 Foto:', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 200,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(estado['foto']),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: Colors.grey[200],
-                        child: const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                              SizedBox(height: 8),
-                              Text('Imagen no disponible', style: TextStyle(color: Colors.grey)),
-                            ],
-                          ),
-                        ),
-                      ),
-                      frameBuilder: (_, child, frame, __) {
-                        if (frame == null) {
-                          return Container(
-                            color: Colors.grey[200],
-                            child: const Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        return child;
-                      },
-                    ),
-                  ),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.8,
+          maxChildSize: 0.95,
+          minChildSize: 0.5,
+          expand: false,
+          builder: (_, controller) => SingleChildScrollView(
+            controller: controller,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10)))),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Text(estado['emoji'], style: const TextStyle(fontSize: 48)),
+                    const SizedBox(width: 16),
+                    Expanded(child: Text(estado['titulo'], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.indigo))),
+                  ],
                 ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(20)),
+                  child: Text('📅 ${estado['fecha'].day}/${estado['fecha'].month}/${estado['fecha'].year} • ${estado['hora']}', style: TextStyle(color: Colors.grey.shade700)),
+                ),
+                const SizedBox(height: 20),
+                const Text('¿Qué hiciste hoy?', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Text(estado['descripcion'], style: const TextStyle(fontSize: 16, height: 1.4)),
+                if (estado['foto'] != null && estado['foto'].isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  const Text('📸 Momento capturado', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  ClipRRect(borderRadius: BorderRadius.circular(20), child: Image.file(File(estado['foto']), height: 200, width: double.infinity, fit: BoxFit.cover)),
+                ],
+                if (estado['notas'].isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  const Text('📝 Notas personales', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  ...estado['notas'].map((n) => Padding(padding: const EdgeInsets.only(bottom: 6), child: Row(children: [const Icon(Icons.circle, size: 6), const SizedBox(width: 8), Expanded(child: Text(n))]))),
+                ],
+                const SizedBox(height: 16),
+                if ((estado['segundosRestantes'] as int) > 0)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(16)),
+                    child: Row(children: [Icon(Icons.timer, color: Colors.amber.shade800), const SizedBox(width: 8), Text('Puedes editar por ${_formatTiempo(estado['segundosRestantes'])}', style: TextStyle(color: Colors.amber.shade800))]),
+                  ),
+                const SizedBox(height: 20),
               ],
-              if (estado['notas'].isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Text('📝 Notas:', style: TextStyle(fontWeight: FontWeight.bold)),
-                ...estado['notas'].map((nota) => Padding(
-                  padding: const EdgeInsets.only(left: 8, top: 4),
-                  child: Text('• $nota'),
-                )),
-              ],
-              if (puedeEditar) ...[
-                const SizedBox(height: 12),
-                Text('⏱️ Tiempo restante: ${_formatTiempo(segundosRestantes)}', style: const TextStyle(color: Colors.blue)),
-              ],
-            ],
+            ),
           ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))],
       ),
     );
   }
@@ -349,7 +360,8 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      backgroundColor: Colors.white,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
@@ -357,62 +369,68 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Nuevo Estado', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                const Text('Selecciona una emoción:'),
-                const SizedBox(height: 12),
+                Center(child: Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10)))),
+                const SizedBox(height: 20),
+                const Text('✨ Nuevo estado de ánimo', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                const SizedBox(height: 8),
+                const Text('¿Cómo te sientes hoy?', style: TextStyle(fontSize: 16, color: Colors.grey)),
+                const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: ['😊', '😢', '😡', '😐', '😞'].map((e) {
                     final selected = emoji == e;
                     return GestureDetector(
                       onTap: () => setModalState(() { emoji = e; errorEmoji = null; }),
-                      child: AnimatedScale(
-                        scale: selected ? 1.5 : 1.0,
+                      child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        child: CircleAvatar(
-                          radius: 28,
-                          backgroundColor: selected ? Colors.blue[100] : Colors.grey[200],
-                          child: Text(e, style: TextStyle(fontSize: 28, color: selected ? Colors.blue : Colors.black)),
+                        transform: Matrix4.identity()..scale(selected ? 1.3 : 1.0),
+                        child: Container(
+                          decoration: BoxDecoration(shape: BoxShape.circle, color: selected ? Colors.indigo.shade100 : Colors.grey.shade100),
+                          padding: const EdgeInsets.all(12),
+                          child: Text(e, style: TextStyle(fontSize: 32, color: selected ? Colors.indigo : Colors.black87)),
                         ),
                       ),
                     );
                   }).toList(),
                 ),
-                if (errorEmoji != null) Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(errorEmoji!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                if (errorEmoji != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(errorEmoji!, style: const TextStyle(color: Colors.red, fontSize: 12))),
+                const SizedBox(height: 24),
+                TextField(
+                  decoration: InputDecoration(labelText: 'Título', prefixIcon: const Icon(Icons.title), border: OutlineInputBorder(borderRadius: BorderRadius.circular(16))),
+                  onChanged: (v) => titulo = v,
                 ),
                 const SizedBox(height: 16),
-                TextField(decoration: const InputDecoration(labelText: 'Título'), onChanged: (v) => titulo = v),
-                const SizedBox(height: 12),
-                TextField(decoration: const InputDecoration(labelText: 'Descripción'), onChanged: (v) => descripcion = v),
-                const SizedBox(height: 12),
-                TextButton.icon(
-                  icon: Icon(imagen == null ? Icons.add_photo_alternate : Icons.change_circle),
+                TextField(
+                  maxLines: 3,
+                  decoration: InputDecoration(labelText: '¿Qué hiciste hoy?', prefixIcon: const Icon(Icons.edit_note), border: OutlineInputBorder(borderRadius: BorderRadius.circular(16))),
+                  onChanged: (v) => descripcion = v,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  icon: Icon(imagen == null ? Icons.add_a_photo : Icons.change_circle),
                   label: Text(imagen == null ? 'Agregar foto' : 'Cambiar foto'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade100, foregroundColor: Colors.indigo, minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
                   onPressed: () async {
                     final img = await _seleccionarImagen();
                     if (img != null) setModalState(() => imagen = img);
                   },
                 ),
-                if (imagen != null) const Text('✓ Foto seleccionada', style: TextStyle(color: Colors.green)),
-                const SizedBox(height: 12),
+                if (imagen != null) const Padding(padding: EdgeInsets.only(top: 8), child: Text('✓ Foto lista', style: TextStyle(color: Colors.green))),
+                const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () {
-                    if (emoji == null) {
-                      setModalState(() => errorEmoji = '⚠️ Selecciona una emoción');
-                      return;
-                    }
+                    if (emoji == null) return setModalState(() => errorEmoji = '⚠️ Elige una emoción');
                     if (titulo.isEmpty || descripcion.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Completa título y descripción')));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Completa título y descripción'), behavior: SnackBarBehavior.floating));
                       return;
                     }
                     widget.onAgregarEstado(emoji!, titulo, descripcion, foto: imagen?.path);
                     Navigator.pop(context);
                   },
-                  child: const Text('Guardar'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 54), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))),
+                  child: const Text('Guardar registro', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
+                const SizedBox(height: 16),
               ],
             ),
           ),
@@ -432,7 +450,8 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      backgroundColor: Colors.white,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
@@ -440,70 +459,59 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Editar Estado', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                const Text('Selecciona una emoción:'),
-                const SizedBox(height: 12),
+                Center(child: Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10)))),
+                const SizedBox(height: 20),
+                const Text('✏️ Editar estado', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: ['😊', '😢', '😡', '😐', '😞'].map((e) {
                     final selected = emoji == e;
                     return GestureDetector(
                       onTap: () => setModalState(() { emoji = e; errorEmoji = null; }),
-                      child: AnimatedScale(
-                        scale: selected ? 1.5 : 1.0,
+                      child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        child: CircleAvatar(
-                          radius: 28,
-                          backgroundColor: selected ? Colors.blue[100] : Colors.grey[200],
-                          child: Text(e, style: TextStyle(fontSize: 28, color: selected ? Colors.blue : Colors.black)),
+                        transform: Matrix4.identity()..scale(selected ? 1.3 : 1.0),
+                        child: Container(
+                          decoration: BoxDecoration(shape: BoxShape.circle, color: selected ? Colors.indigo.shade100 : Colors.grey.shade100),
+                          padding: const EdgeInsets.all(12),
+                          child: Text(e, style: TextStyle(fontSize: 32, color: selected ? Colors.indigo : Colors.black87)),
                         ),
                       ),
                     );
                   }).toList(),
                 ),
-                if (errorEmoji != null) Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(errorEmoji!, style: const TextStyle(color: Colors.red, fontSize: 12)),
-                ),
+                if (errorEmoji != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(errorEmoji!, style: const TextStyle(color: Colors.red))),
+                const SizedBox(height: 24),
+                TextField(controller: TextEditingController(text: titulo), decoration: InputDecoration(labelText: 'Título', prefixIcon: const Icon(Icons.title), border: OutlineInputBorder(borderRadius: BorderRadius.circular(16))), onChanged: (v) => titulo = v),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: TextEditingController(text: titulo),
-                  decoration: const InputDecoration(labelText: 'Título'),
-                  onChanged: (v) => titulo = v,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: TextEditingController(text: descripcion),
-                  decoration: const InputDecoration(labelText: 'Descripción'),
-                  onChanged: (v) => descripcion = v,
-                ),
-                const SizedBox(height: 12),
-                TextButton.icon(
-                  icon: Icon(imagen == null ? Icons.add_photo_alternate : Icons.change_circle),
+                TextField(controller: TextEditingController(text: descripcion), maxLines: 3, decoration: InputDecoration(labelText: 'Descripción', prefixIcon: const Icon(Icons.edit_note), border: OutlineInputBorder(borderRadius: BorderRadius.circular(16))), onChanged: (v) => descripcion = v),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  icon: Icon(imagen == null ? Icons.add_a_photo : Icons.change_circle),
                   label: Text(imagen == null ? 'Agregar foto' : 'Cambiar foto'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade100, foregroundColor: Colors.indigo, minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
                   onPressed: () async {
                     final img = await _seleccionarImagen();
                     if (img != null) setModalState(() => imagen = img);
                   },
                 ),
-                if (imagen != null) const Text('✓ Foto seleccionada', style: TextStyle(color: Colors.green)),
-                const SizedBox(height: 12),
+                if (imagen != null) const Padding(padding: EdgeInsets.only(top: 8), child: Text('✓ Foto actualizada', style: TextStyle(color: Colors.green))),
+                const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () {
-                    if (emoji == null) {
-                      setModalState(() => errorEmoji = '⚠️ Selecciona una emoción');
-                      return;
-                    }
+                    if (emoji == null) return setModalState(() => errorEmoji = 'Selecciona una emoción');
                     if (titulo.isEmpty || descripcion.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Completa título y descripción')));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Completa los campos'), behavior: SnackBarBehavior.floating));
                       return;
                     }
                     widget.onEditarEstado(index, emoji!, titulo, descripcion, foto: imagen?.path);
                     Navigator.pop(context);
                   },
-                  child: const Text('Guardar Cambios'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 54), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))),
+                  child: const Text('Actualizar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
+                const SizedBox(height: 16),
               ],
             ),
           ),
@@ -515,23 +523,29 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
   void mostrarDialogoNota(int index) {
     final notas = widget.estados[index]['notas'] as List;
     if (notas.length >= 5) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Máximo 5 notas por registro'), backgroundColor: Colors.orange));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Máximo 5 notas por registro'), backgroundColor: Colors.orange, behavior: SnackBarBehavior.floating));
       return;
     }
     String nuevaNota = '';
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Agregar Nota'),
-        content: TextField(onChanged: (v) => nuevaNota = v, decoration: const InputDecoration(hintText: 'Escribe tu nota...')),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('📝 Agregar nota', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: TextField(
+          autofocus: true,
+          decoration: InputDecoration(hintText: 'Escribe tu reflexión...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(16))),
+          onChanged: (v) => nuevaNota = v,
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
             onPressed: () {
               if (nuevaNota.isNotEmpty) widget.onAgregarNota(index, nuevaNota);
               Navigator.pop(context);
             },
-            child: const Text('Guardar'),
+            child: const Text('Guardar nota'),
           ),
         ],
       ),
@@ -539,66 +553,165 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> {
   }
 
   String _formatTiempo(int segundos) {
-    if (segundos <= 0) return '0 seg';
+    if (segundos <= 0) return '0s';
     int minutos = segundos ~/ 60;
     int segs = segundos % 60;
-    return minutos > 0 ? '$minutos min ${segs.toString().padLeft(2, '0')} seg' : '$segs seg';
+    return minutos > 0 ? '${minutos}m ${segs}s' : '${segs}s';
   }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text('¡Hola, ${widget.apodo}!', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          ),
-          Expanded(
-            child: widget.estados.isEmpty
-                ? const Center(child: Text('No hay estados registrados aún'))
-                : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: widget.estados.length,
-              itemBuilder: (context, index) {
-                final estado = widget.estados[index];
-                final restante = estado['segundosRestantes'] as int;
-                final editable = restante > 0;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: Column(
-                    children: [
-                      ListTile(
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header con saludo bonito
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [Colors.indigo.shade50, Colors.white], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(32), bottomRight: Radius.circular(32)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.indigo.shade100, shape: BoxShape.circle),
+                    child: const Icon(Icons.emoji_emotions, color: Colors.indigo, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('¡Hola, ${widget.apodo}!', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                        const Text('¿Cómo estuvo tu día?', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6)]),
+                    child: const Icon(Icons.mood, color: Colors.indigo),
+                  ),
+                ],
+              ),
+            ),
+            // Lista de estados
+            Expanded(
+              child: widget.estados.isEmpty
+                  ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.sentiment_dissatisfied, size: 80, color: Colors.grey.shade300),
+                    const SizedBox(height: 16),
+                    Text('No hay registros aún', style: TextStyle(color: Colors.grey.shade500, fontSize: 18)),
+                    const SizedBox(height: 8),
+                    Text('Toca el botón + para añadir tu primer momento', style: TextStyle(color: Colors.grey.shade400)),
+                  ],
+                ),
+              )
+                  : ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: widget.estados.length,
+                itemBuilder: (context, index) {
+                  final estado = widget.estados[index];
+                  final restante = estado['segundosRestantes'] as int;
+                  final editable = restante > 0;
+                  return AnimatedSlide(
+                    offset: const Offset(0, 0),
+                    duration: const Duration(milliseconds: 300),
+                    child: Card(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      elevation: 4,
+                      shadowColor: Colors.indigo.shade50,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(24),
                         onTap: () => _mostrarDetalle(estado),
-                        leading: Text(estado['emoji'], style: const TextStyle(fontSize: 28)),
-                        title: Text('${estado['hora']}  ${estado['titulo']}'),
-                        subtitle: Text(estado['descripcion']),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (editable) IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => mostrarFormularioEditarEstado(index)),
-                            if (editable) IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => widget.onEliminarEstado(index)),
-                            if (!editable) IconButton(icon: const Icon(Icons.note_add, color: Colors.green), onPressed: () => mostrarDialogoNota(index)),
-                          ],
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: BoxDecoration(color: Colors.indigo.shade50, shape: BoxShape.circle),
+                                    child: Center(child: Text(estado['emoji'], style: const TextStyle(fontSize: 32))),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(estado['titulo'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 4),
+                                        Text(estado['descripcion'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600)),
+                                      ],
+                                    ),
+                                  ),
+                                  if (editable)
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(onPressed: () => mostrarFormularioEditarEstado(index), icon: const Icon(Icons.edit, color: Colors.indigo), tooltip: 'Editar'),
+                                        IconButton(onPressed: () => widget.onEliminarEstado(index), icon: const Icon(Icons.delete_outline, color: Colors.redAccent), tooltip: 'Eliminar'),
+                                      ],
+                                    )
+                                  else
+                                    IconButton(onPressed: () => mostrarDialogoNota(index), icon: const Icon(Icons.note_add, color: Colors.green), tooltip: 'Agregar nota'),
+                                ],
+                              ),
+                              if (editable) ...[
+                                const SizedBox(height: 12),
+                                LinearProgressIndicator(
+                                  value: restante / (TIEMPO_LIMITE_MINUTOS * 60),
+                                  backgroundColor: Colors.grey.shade200,
+                                  color: Colors.indigo,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                const SizedBox(height: 6),
+                                Text('⏱️ ${_formatTiempo(restante)} para editar', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                              ],
+                              if (estado['foto'] != null && estado['foto'].isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.file(File(estado['foto']), height: 120, width: double.infinity, fit: BoxFit.cover)),
+                              ],
+                            ],
+                          ),
                         ),
                       ),
-                      if (editable)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text('Tiempo restante: ${_formatTiempo(restante)}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                        ),
-                    ],
-                  ),
-                );
-              },
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12, right: 16),
-            child: Align(alignment: Alignment.bottomRight, child: FloatingActionButton(child: const Icon(Icons.add), onPressed: mostrarFormularioNuevoEstado)),
-          ),
-        ],
+          ],
+        ),
       ),
+      floatingActionButton: ScaleTransition(
+        scale: _fabController,
+        child: FloatingActionButton.extended(
+          onPressed: mostrarFormularioNuevoEstado,
+          icon: const Icon(Icons.add, color: Colors.white),
+          label: const Text('Nuevo estado', style: TextStyle(fontWeight: FontWeight.bold)),
+          backgroundColor: Colors.indigo,
+          elevation: 8,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
+  }
+
+  @override
+  void dispose() {
+    _fabController.dispose();
+    super.dispose();
   }
 }
