@@ -25,6 +25,15 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#4F46E5"        # Fondo del icono adaptativo (indigo)
+  adaptive_icon_foreground: "assets/icon.png" # Puedes usar la misma imagen
+  min_sdk_android: 21                         # Compatibilidad con Android 5+
 
 flutter:
   uses-material-design: true
