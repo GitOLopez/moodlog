@@ -11,7 +11,7 @@ import 'estadistica/estadistica_page.dart';
 import 'perfil/perfil_page.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 
-const int TIEMPO_LIMITE_MINUTOS = 5; // Cambia a 1 para pruebas
+const int TIEMPO_LIMITE_MINUTOS = 5; // SOLO PARA PRUEBAS CAMBIAR A a 1 (POR DEFAULT 5)
 const Set<String> emojisNegativos = {'😢', '😡', '😞'};
 
 class BienvenidaPage extends StatefulWidget {
@@ -103,13 +103,13 @@ class _BienvenidaPageState extends State<BienvenidaPage> with SingleTickerProvid
     if (ultimoMensajeStr != null) {
       ultimoMensaje = DateTime.tryParse(ultimoMensajeStr);
     }
-    if (ultimoMensaje != null && DateTime.now().difference(ultimoMensaje).inDays < 5) return;
+    if (ultimoMensaje != null && DateTime.now().difference(ultimoMensaje).inDays < 5) return; //SOLO PARA PRUEBAS CAMBIAR  a 0(DEFAULT queda en 5)
 
     final diasNegativosSemana = await _contarDiasConEmocionesNegativasEnUltimaSemana();
     final negativosHoy = await _contarEmocionesNegativasHoy();
 
-    bool condicionSemana = diasNegativosSemana >= 3;
-    bool condicionHoy = negativosHoy >= 2;
+    bool condicionSemana = diasNegativosSemana >= 3; //SOLO PARA PRUEBAS CAMBIAR a 1 (DEFAULT queda en 3 )
+    bool condicionHoy = negativosHoy >= 3; //SOLO PARA PRUEBAS CAMBIAR a 1 (DEFAULT queda en 2)
 
     if (condicionSemana || condicionHoy) {
       final mensaje = condicionHoy
@@ -164,32 +164,21 @@ class _BienvenidaPageState extends State<BienvenidaPage> with SingleTickerProvid
               subtitle: const Text('7071-1302'),
               onTap: () async {
                 Navigator.pop(context);
-                final Uri telUri = Uri(scheme: 'tel', path: '70711302');
-                if (await canLaunchUrl(telUri)) {
-                  await launchUrl(telUri);
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('No se puede realizar la llamada'), behavior: SnackBarBehavior.floating),
-                  );
-                }
+                await _realizarLlamada(context, '70711302');
               },
             ),
-            if (telefonoContacto.isNotEmpty)
+            if (telefonoContacto.isNotEmpty && telefonoContacto != 'No registrado')
               ListTile(
                 leading: CircleAvatar(backgroundColor: Colors.green.shade100, child: const Icon(Icons.person, color: Colors.green)),
                 title: Text('Llamar a $nombreContacto'),
                 subtitle: Text(telefonoContacto),
                 onTap: () async {
                   Navigator.pop(context);
-                  final numeroLimpio = telefonoContacto.replaceAll(RegExp(r'[^0-9]'), '');
-                  final Uri telUri = Uri(scheme: 'tel', path: numeroLimpio);
-                  if (await canLaunchUrl(telUri)) {
-                    await launchUrl(telUri);
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('No se puede realizar la llamada'), behavior: SnackBarBehavior.floating),
-                    );
+                  String numeroLimpio = telefonoContacto.replaceAll(RegExp(r'[^0-9]'), '');
+                  if (numeroLimpio.length == 8 && !numeroLimpio.startsWith('503')) {
+                    numeroLimpio = '+503$numeroLimpio';
                   }
+                  await _realizarLlamada(context, numeroLimpio);
                 },
               ),
           ],
@@ -199,6 +188,26 @@ class _BienvenidaPageState extends State<BienvenidaPage> with SingleTickerProvid
         ],
       ),
     );
+  }
+
+  // Función única para realizar la llamada (recibe el BuildContext)
+  Future<void> _realizarLlamada(BuildContext context, String numero) async {
+    final Uri telUri = Uri(scheme: 'tel', path: numero);
+    if (await canLaunchUrl(telUri)) {
+      await launchUrl(telUri, mode: LaunchMode.externalApplication);
+    } else {
+      // Fallback: mostrar un mensaje
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se puede realizar la llamada. Verifica que tu dispositivo tenga una app de teléfono.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } else {
+        print('No se puede lanzar la llamada al número: $numero');
+      }
+    }
   }
 
   // ==================== FIN APOYO EMOCIONAL ====================
