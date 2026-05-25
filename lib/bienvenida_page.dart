@@ -1,14 +1,18 @@
-// bienvenida_page.dart
+// lib/bienvenida_page.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:moodlog/database/database_helper.dart';
 import 'estadistica/estadistica_page.dart';
 import 'perfil/perfil_page.dart';
 
-const int TIEMPO_LIMITE_MINUTOS = 1;
+const int TIEMPO_LIMITE_MINUTOS = 5; // Cambia a 1 para pruebas
+const Set<String> emojisNegativos = {'😢', '😡', '😞'};
 
 class BienvenidaPage extends StatefulWidget {
   final Map<String, dynamic> userData;
@@ -62,12 +66,150 @@ class _BienvenidaPageState extends State<BienvenidaPage> with SingleTickerProvid
     _iniciarTimerRefresco();
   }
 
+  // ==================== APOYO EMOCIONAL ====================
+  Future<int> _contarDiasConEmocionesNegativasEnUltimaSemana() async {
+    final hoy = DateTime.now();
+    final hace7Dias = hoy.subtract(const Duration(days: 7));
+    final registros = await DatabaseHelper().getMemoriesByUserInRange(_userId, hace7Dias, hoy);
+    final diasConNegativos = <String>{};
+    for (var reg in registros) {
+      if (emojisNegativos.contains(reg['emoji'])) {
+        final fecha = DateTime.parse(reg['created_at']);
+        final diaKey = '${fecha.year}-${fecha.month}-${fecha.day}';
+        diasConNegativos.add(diaKey);
+      }
+    }
+    return diasConNegativos.length;
+  }
+
+  Future<int> _contarEmocionesNegativasHoy() async {
+    final hoy = DateTime.now();
+    final inicioHoy = DateTime(hoy.year, hoy.month, hoy.day);
+    final finHoy = inicioHoy.add(const Duration(days: 1));
+    final registros = await DatabaseHelper().getMemoriesByUserInRange(_userId, inicioHoy, finHoy);
+    int count = 0;
+    for (var reg in registros) {
+      if (emojisNegativos.contains(reg['emoji'])) count++;
+    }
+    return count;
+  }
+
+  Future<void> _verificarYMostrarMensajeAyuda() async {
+    final desactivadas = await DatabaseHelper().obtenerConfiguracion(_userId, 'alertas_desactivadas');
+    if (desactivadas == '1') return;
+
+    final ultimoMensajeStr = await DatabaseHelper().obtenerConfiguracion(_userId, 'ultimo_mensaje_ayuda');
+    DateTime? ultimoMensaje;
+    if (ultimoMensajeStr != null) {
+      ultimoMensaje = DateTime.tryParse(ultimoMensajeStr);
+    }
+    if (ultimoMensaje != null && DateTime.now().difference(ultimoMensaje).inDays < 5) return;
+
+    final diasNegativosSemana = await _contarDiasConEmocionesNegativasEnUltimaSemana();
+    final negativosHoy = await _contarEmocionesNegativasHoy();
+
+    bool condicionSemana = diasNegativosSemana >= 3;
+    bool condicionHoy = negativosHoy >= 2;
+
+    if (condicionSemana || condicionHoy) {
+      final mensaje = condicionHoy
+          ? 'Hoy has tenido varias emociones difíciles. Recuerda que no estás solo.'
+          : 'En los últimos días has registrado emociones difíciles con frecuencia. Recuerda que no estás solo.';
+      await _mostrarDialogoAyuda(mensaje);
+      await DatabaseHelper().guardarConfiguracion(_userId, 'ultimo_mensaje_ayuda', DateTime.now().toIso8601String().split('T')[0]);
+    }
+  }
+
+  Future<void> _mostrarDialogoAyuda(String mensaje) async {
+    final telefonoContacto = _userData['contactoEmergencia']?.toString() ?? '';
+    final nombreContacto = _userData['nombreContacto'] ?? 'Contacto de emergencia';
+
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('💙 ¿Necesitas apoyo?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(mensaje, style: const TextStyle(fontSize: 16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Recordar más tarde', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+            onPressed: () {
+              Navigator.pop(context);
+              _mostrarRecursosAyuda(telefonoContacto, nombreContacto);
+            },
+            child: const Text('Sí, necesito ayuda'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _mostrarRecursosAyuda(String telefonoContacto, String nombreContacto) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('Opciones de ayuda', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: CircleAvatar(backgroundColor: Colors.indigo.shade100, child: const Icon(Icons.phone, color: Colors.indigo)),
+              title: const Text('Línea #TeEscucho (ISSS)'),
+              subtitle: const Text('7071-1302'),
+              onTap: () async {
+                Navigator.pop(context);
+                final Uri telUri = Uri(scheme: 'tel', path: '70711302');
+                if (await canLaunchUrl(telUri)) {
+                  await launchUrl(telUri);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No se puede realizar la llamada'), behavior: SnackBarBehavior.floating),
+                  );
+                }
+              },
+            ),
+            if (telefonoContacto.isNotEmpty)
+              ListTile(
+                leading: CircleAvatar(backgroundColor: Colors.green.shade100, child: const Icon(Icons.person, color: Colors.green)),
+                title: Text('Llamar a $nombreContacto'),
+                subtitle: Text(telefonoContacto),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final numeroLimpio = telefonoContacto.replaceAll(RegExp(r'[^0-9]'), '');
+                  final Uri telUri = Uri(scheme: 'tel', path: numeroLimpio);
+                  if (await canLaunchUrl(telUri)) {
+                    await launchUrl(telUri);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('No se puede realizar la llamada'), behavior: SnackBarBehavior.floating),
+                    );
+                  }
+                },
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar', style: TextStyle(color: Colors.grey))),
+        ],
+      ),
+    );
+  }
+
+  // ==================== FIN APOYO EMOCIONAL ====================
+
   Future<void> _cargarEstadosDesdeBD() async {
     final memories = await DatabaseHelper().getMemoriesByUser(_userId);
     setState(() {
       estados = memories.map((mem) => _memoryToEstado(mem)).toList();
       _actualizarTiempos();
     });
+    _verificarYMostrarMensajeAyuda();
   }
 
   Map<String, dynamic> _memoryToEstado(Map<String, dynamic> memory) {
@@ -117,6 +259,9 @@ class _BienvenidaPageState extends State<BienvenidaPage> with SingleTickerProvid
       'segundosRestantes': TIEMPO_LIMITE_MINUTOS * 60,
     };
     setState(() => estados.insert(0, nuevoEstado));
+    if (emojisNegativos.contains(emoji)) {
+      _verificarYMostrarMensajeAyuda();
+    }
   }
 
   Future<void> editarEstado(int index, String emoji, String titulo, String descripcion, {String? foto}) async {
@@ -223,7 +368,7 @@ class _BienvenidaPageState extends State<BienvenidaPage> with SingleTickerProvid
   }
 }
 
-// Home
+// ======================== BienvenidaHomeContent ========================
 class BienvenidaHomeContent extends StatefulWidget {
   final String apodo;
   final List<Map<String, dynamic>> estados;
@@ -232,7 +377,15 @@ class BienvenidaHomeContent extends StatefulWidget {
   final Future<void> Function(int index) onEliminarEstado;
   final Future<void> Function(int index, String nota) onAgregarNota;
 
-  const BienvenidaHomeContent({Key? key, required this.apodo, required this.estados, required this.onAgregarEstado, required this.onEditarEstado, required this.onEliminarEstado, required this.onAgregarNota}) : super(key: key);
+  const BienvenidaHomeContent({
+    Key? key,
+    required this.apodo,
+    required this.estados,
+    required this.onAgregarEstado,
+    required this.onEditarEstado,
+    required this.onEliminarEstado,
+    required this.onAgregarNota,
+  }) : super(key: key);
 
   @override
   _BienvenidaHomeContentState createState() => _BienvenidaHomeContentState();
@@ -247,6 +400,83 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> with Sing
     super.initState();
     _fabController = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
     _fabController.forward();
+  }
+
+  // --- Manejo robusto de imágenes (bytes) ---
+  Future<String?> _copiarImagenAPersistente(File imagenOriginal) async {
+    try {
+      // Leer bytes de la imagen original
+      final bytes = await imagenOriginal.readAsBytes();
+      if (bytes.isEmpty) {
+        print('❌ El archivo original está vacío');
+        return null;
+      }
+      final directorio = await getApplicationDocumentsDirectory();
+      final nombreArchivo = 'img_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final nuevaRuta = '${directorio.path}/$nombreArchivo';
+      final nuevoArchivo = File(nuevaRuta);
+      await nuevoArchivo.writeAsBytes(bytes);
+      if (await nuevoArchivo.exists()) {
+        print('✅ Imagen copiada correctamente a: $nuevaRuta');
+        return nuevaRuta;
+      } else {
+        print('❌ No se pudo crear el archivo de imagen');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Error copiando imagen: $e');
+      return null;
+    }
+  }
+
+  Future<Uint8List?> _loadImageBytes(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        return await file.readAsBytes();
+      } else {
+        print('⚠️ Archivo no existe: $path');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Error leyendo imagen: $e');
+      return null;
+    }
+  }
+
+  Widget _buildImageWidget(String? path, {double height = 120}) {
+    if (path == null || path.isEmpty) return const SizedBox.shrink();
+    return FutureBuilder<Uint8List?>(
+      future: _loadImageBytes(path),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(height: height, color: Colors.grey[200], child: const Center(child: CircularProgressIndicator()));
+        }
+        if (snapshot.hasData && snapshot.data != null) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.memory(
+              snapshot.data!,
+              height: height,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                height: height,
+                color: Colors.grey[200],
+                child: const Center(child: Text('Error de imagen', style: TextStyle(color: Colors.grey))),
+              ),
+            ),
+          );
+        } else {
+          print('⚠️ No se pudieron cargar los bytes de la imagen: $path');
+          return Container(
+            height: height,
+            color: Colors.grey[200],
+            child: const Center(child: Text('Imagen no disponible', style: TextStyle(color: Colors.grey))),
+          );
+        }
+      },
+    );
   }
 
   Future<File?> _seleccionarImagen() async {
@@ -266,7 +496,16 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> with Sing
               title: const Text('Galería', style: TextStyle(fontWeight: FontWeight.w500)),
               onTap: () async {
                 final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-                Navigator.pop(context, image != null ? File(image.path) : null);
+                if (image != null) {
+                  final rutaPersistente = await _copiarImagenAPersistente(File(image.path));
+                  if (rutaPersistente != null) {
+                    Navigator.pop(context, File(rutaPersistente));
+                  } else {
+                    Navigator.pop(context, null);
+                  }
+                } else {
+                  Navigator.pop(context, null);
+                }
               },
             ),
             ListTile(
@@ -274,7 +513,16 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> with Sing
               title: const Text('Cámara', style: TextStyle(fontWeight: FontWeight.w500)),
               onTap: () async {
                 final XFile? image = await _picker.pickImage(source: ImageSource.camera);
-                Navigator.pop(context, image != null ? File(image.path) : null);
+                if (image != null) {
+                  final rutaPersistente = await _copiarImagenAPersistente(File(image.path));
+                  if (rutaPersistente != null) {
+                    Navigator.pop(context, File(rutaPersistente));
+                  } else {
+                    Navigator.pop(context, null);
+                  }
+                } else {
+                  Navigator.pop(context, null);
+                }
               },
             ),
             const SizedBox(height: 8),
@@ -326,7 +574,7 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> with Sing
                   const SizedBox(height: 20),
                   const Text('📸 Momento capturado', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 12),
-                  ClipRRect(borderRadius: BorderRadius.circular(20), child: Image.file(File(estado['foto']), height: 200, width: double.infinity, fit: BoxFit.cover)),
+                  _buildImageWidget(estado['foto'], height: 200),
                 ],
                 if (estado['notas'].isNotEmpty) ...[
                   const SizedBox(height: 20),
@@ -566,7 +814,7 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> with Sing
       body: SafeArea(
         child: Column(
           children: [
-            // Header con saludo bonito
+            // Header con saludo
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               decoration: BoxDecoration(
@@ -620,70 +868,66 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> with Sing
                   final estado = widget.estados[index];
                   final restante = estado['segundosRestantes'] as int;
                   final editable = restante > 0;
-                  return AnimatedSlide(
-                    offset: const Offset(0, 0),
-                    duration: const Duration(milliseconds: 300),
-                    child: Card(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      elevation: 4,
-                      shadowColor: Colors.indigo.shade50,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(24),
-                        onTap: () => _mostrarDetalle(estado),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 56,
-                                    height: 56,
-                                    decoration: BoxDecoration(color: Colors.indigo.shade50, shape: BoxShape.circle),
-                                    child: Center(child: Text(estado['emoji'], style: const TextStyle(fontSize: 32))),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(estado['titulo'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                        const SizedBox(height: 4),
-                                        Text(estado['descripcion'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600)),
-                                      ],
-                                    ),
-                                  ),
-                                  if (editable)
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(onPressed: () => mostrarFormularioEditarEstado(index), icon: const Icon(Icons.edit, color: Colors.indigo), tooltip: 'Editar'),
-                                        IconButton(onPressed: () => widget.onEliminarEstado(index), icon: const Icon(Icons.delete_outline, color: Colors.redAccent), tooltip: 'Eliminar'),
-                                      ],
-                                    )
-                                  else
-                                    IconButton(onPressed: () => mostrarDialogoNota(index), icon: const Icon(Icons.note_add, color: Colors.green), tooltip: 'Agregar nota'),
-                                ],
-                              ),
-                              if (editable) ...[
-                                const SizedBox(height: 12),
-                                LinearProgressIndicator(
-                                  value: restante / (TIEMPO_LIMITE_MINUTOS * 60),
-                                  backgroundColor: Colors.grey.shade200,
-                                  color: Colors.indigo,
-                                  borderRadius: BorderRadius.circular(10),
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    elevation: 4,
+                    shadowColor: Colors.indigo.shade50,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: () => _mostrarDetalle(estado),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 56,
+                                  height: 56,
+                                  decoration: BoxDecoration(color: Colors.indigo.shade50, shape: BoxShape.circle),
+                                  child: Center(child: Text(estado['emoji'], style: const TextStyle(fontSize: 32))),
                                 ),
-                                const SizedBox(height: 6),
-                                Text('⏱️ ${_formatTiempo(restante)} para editar', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(estado['titulo'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 4),
+                                      Text(estado['descripcion'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600)),
+                                    ],
+                                  ),
+                                ),
+                                if (editable)
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(onPressed: () => mostrarFormularioEditarEstado(index), icon: const Icon(Icons.edit, color: Colors.indigo), tooltip: 'Editar'),
+                                      IconButton(onPressed: () => widget.onEliminarEstado(index), icon: const Icon(Icons.delete_outline, color: Colors.redAccent), tooltip: 'Eliminar'),
+                                    ],
+                                  )
+                                else
+                                  IconButton(onPressed: () => mostrarDialogoNota(index), icon: const Icon(Icons.note_add, color: Colors.green), tooltip: 'Agregar nota'),
                               ],
-                              if (estado['foto'] != null && estado['foto'].isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.file(File(estado['foto']), height: 120, width: double.infinity, fit: BoxFit.cover)),
-                              ],
+                            ),
+                            if (editable) ...[
+                              const SizedBox(height: 12),
+                              LinearProgressIndicator(
+                                value: restante / (TIEMPO_LIMITE_MINUTOS * 60),
+                                backgroundColor: Colors.grey.shade200,
+                                color: Colors.indigo,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              const SizedBox(height: 6),
+                              Text('⏱️ ${_formatTiempo(restante)} para editar', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                             ],
-                          ),
+                            if (estado['foto'] != null && estado['foto'].isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _buildImageWidget(estado['foto'], height: 120),
+                            ],
+                          ],
                         ),
                       ),
                     ),
