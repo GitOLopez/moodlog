@@ -2,7 +2,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:moodlog/database/database_helper.dart';
 import 'estadistica/estadistica_page.dart';
 import 'perfil/perfil_page.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 
 const int TIEMPO_LIMITE_MINUTOS = 5; // Cambia a 1 para pruebas
 const Set<String> emojisNegativos = {'😢', '😡', '😞'};
@@ -402,80 +402,67 @@ class _BienvenidaHomeContentState extends State<BienvenidaHomeContent> with Sing
     _fabController.forward();
   }
 
-  // --- Manejo robusto de imágenes (bytes) ---
+  // --- Copia robusta de imágenes ---
   Future<String?> _copiarImagenAPersistente(File imagenOriginal) async {
     try {
-      // Leer bytes de la imagen original
-      final bytes = await imagenOriginal.readAsBytes();
-      if (bytes.isEmpty) {
-        print('❌ El archivo original está vacío');
+      if (!await imagenOriginal.exists()) {
+        print('❌ El archivo original no existe');
         return null;
       }
+      final tamanoOriginal = await imagenOriginal.length();
+      print('📏 Tamaño original: $tamanoOriginal bytes');
+
       final directorio = await getApplicationDocumentsDirectory();
       final nombreArchivo = 'img_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final nuevaRuta = '${directorio.path}/$nombreArchivo';
-      final nuevoArchivo = File(nuevaRuta);
-      await nuevoArchivo.writeAsBytes(bytes);
-      if (await nuevoArchivo.exists()) {
-        print('✅ Imagen copiada correctamente a: $nuevaRuta');
-        return nuevaRuta;
+
+      // Comprimir y convertir a JPEG
+      final XFile? result = await FlutterImageCompress.compressAndGetFile(
+        imagenOriginal.path,
+        nuevaRuta,
+        quality: 85,
+        format: CompressFormat.jpeg,
+      );
+
+      if (result != null) {
+        final File archivoResultante = File(result.path);
+        if (await archivoResultante.exists()) {
+          final tamanoNuevo = await archivoResultante.length();
+          print('✅ Imagen convertida a JPG y guardada en: $nuevaRuta (tamaño: $tamanoNuevo bytes)');
+          return nuevaRuta;
+        } else {
+          print('❌ El archivo resultante no existe');
+          return null;
+        }
       } else {
-        print('❌ No se pudo crear el archivo de imagen');
+        print('❌ No se pudo comprimir la imagen');
         return null;
       }
     } catch (e) {
-      print('❌ Error copiando imagen: $e');
+      print('❌ Error procesando imagen: $e');
       return null;
     }
   }
 
-  Future<Uint8List?> _loadImageBytes(String path) async {
-    try {
-      final file = File(path);
-      if (await file.exists()) {
-        return await file.readAsBytes();
-      } else {
-        print('⚠️ Archivo no existe: $path');
-        return null;
-      }
-    } catch (e) {
-      print('❌ Error leyendo imagen: $e');
-      return null;
-    }
-  }
-
+  // Widget que muestra la imagen directamente con Image.file (sin FutureBuilder)
   Widget _buildImageWidget(String? path, {double height = 120}) {
     if (path == null || path.isEmpty) return const SizedBox.shrink();
-    return FutureBuilder<Uint8List?>(
-      future: _loadImageBytes(path),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Container(height: height, color: Colors.grey[200], child: const Center(child: CircularProgressIndicator()));
-        }
-        if (snapshot.hasData && snapshot.data != null) {
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Image.memory(
-              snapshot.data!,
-              height: height,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                height: height,
-                color: Colors.grey[200],
-                child: const Center(child: Text('Error de imagen', style: TextStyle(color: Colors.grey))),
-              ),
-            ),
-          );
-        } else {
-          print('⚠️ No se pudieron cargar los bytes de la imagen: $path');
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Image.file(
+        File(path),
+        height: height,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          print('❌ Error mostrando imagen (${error.runtimeType}): $error');
           return Container(
             height: height,
             color: Colors.grey[200],
             child: const Center(child: Text('Imagen no disponible', style: TextStyle(color: Colors.grey))),
           );
-        }
-      },
+        },
+      ),
     );
   }
 
